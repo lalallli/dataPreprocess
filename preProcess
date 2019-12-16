@@ -1,0 +1,112 @@
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+import time
+
+dataPath = {inputPath Here}
+
+class preProcess():
+    def __init__(self,factorName, dates): #ind_citics = [], include = True 
+        
+        start = time.clock()
+        self.factor = self.clean(dataPath + factorName, 'ffill')
+        
+        self.ind_citics = self.clean(dataPath + "ind_citics.csv", 0)  
+        self.ind_citics = self.dataCalibrate(self.ind_citics, self.factor)
+            
+        self.factor = self.dataCalibrate(self.factor, self.ind_citics)
+        self.factorList = pd.DataFrame()
+        print("Calibration finished, used: {} seconds".format(time.clock() - start))
+        
+        for i in range(0,self.factor.shape[0]):
+            self.filter_extreme_3sigma(self.factor.iloc[i,:])
+            
+        for i in range(0,self.factor.shape[0]):
+            self.standardize_series(self.factor.iloc[i,:])   
+        
+        print("Start neutralization")
+        breakTime = time.clock()
+        
+        for date in dates:
+            self.resid = self.neutralization(self.factor,self.ind_citics,date)
+            self.factorList = self.factorList.append(self.resid, ignore_index = True)
+            print(str(date) + " finished")
+       
+        print("Totally used {} seconds".format(time.clock() - breakTime))
+        
+    
+    def filter_extreme_3sigma(self,series,n=3): #3 sigma
+      mean = series.mean()
+      std = series.std()
+      max_range = mean + n*std
+      min_range = mean - n*std
+      return np.clip(series,min_range,max_range)
+    
+    
+    def standardize_series(self,series): 
+      std = series.std()
+      mean = series.mean()
+      return (series-mean)/std
+    
+    def indMatrix(self,array):
+        """
+        Input should be single row series
+        e.x. ind_citics.loc[int(date)]
+        or   ind_citics.iloc[ int(position),:]
+        
+        To call function: indMatrix(ind_citics.loc[int(date)])
+        or indMatrix(ind_citics.iloc[ int(position),:])
+        """
+        targetMatrix = pd.DataFrame(index = range(0,30),columns = array.index)
+        for i in range(0,array.shape[0]):
+            try:
+                targetMatrix.iloc[int(array.iloc[i]), i] = 1
+            except ValueError:
+                targetMatrix[0 ,i] = 0
+        targetMatrix = targetMatrix.fillna(0)
+        return targetMatrix
+       
+    def neutralization(self,factor, industry, date):
+       """
+        pe_factor 
+       """
+       y = factor.loc[date]
+       dummy_industry = self.indMatrix(industry.loc[date])
+       x = dummy_industry.T
+       result = sm.OLS(y.astype(float),x.astype(float)).fit()
+       return result.resid.reindex(factor.columns)
+    
+    
+    def clean(self,data, fill = 'ffill'):
+        reader = pd.read_csv(data)
+        #reader = reader[reader['date']>20150101]
+        #reader = reader.reset_index()
+        #reader = reader.drop('index', axis = 1)
+        if fill =='ffill':
+            reader = reader.fillna(method=fill) 
+        elif fill ==0:
+            reader = reader.fillna(0)
+        for i in reader.columns:
+            if  np.isnan(reader.loc[0,i]):
+                reader = reader.drop(i, axis = 1)
+        reader = reader.set_index('date')
+        return reader
+            
+    def dataCalibrate(self, data, target):
+        for i in data.columns:
+            if not i in target.columns:
+                data = data.drop(i, axis = 1)
+        return data
+    
+    
+
+
+
+
+
+    
+
+
+
+
+
